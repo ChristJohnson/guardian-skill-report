@@ -1,72 +1,50 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
+mod user;
+mod app;
 
-const BUNGIE_ROOT: &str = "https://www.bungie.net/Platform";
+pub(crate) const _BUNGIE_ROOT: &str = "https://www.bungie.net/Platform";
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+// When compiling natively:
+#[cfg(not(target_arch = "wasm32"))]
+fn main() -> eframe::Result<()> {
+    // tokio::runtime::Builder::new_multi_thread()
+    //     .enable_all()
+    //     .build()
+    //     .unwrap()
+    //     .block_on(async {
+    //         println!("Hello world");
+    //     });
+    
+    // Log to stdout (if you run with `RUST_LOG=debug`).
+    tracing_subscriber::fmt::init();
 
-    debug("https://httpbin.org/ip").await?;
-
-    let key: BungieKey = grab_api_key()?;
-    // println!("using key: {}", key.0);
-
-    let mut headers: HeaderMap = HeaderMap::new();
-    let mut key_secret: header::HeaderValue = header::HeaderValue::from_str(&key.0).expect("failed to put the api key");
-    key_secret.set_sensitive(true);
-    headers.append("X-API-Key", key_secret);
-
-    let client = ClientBuilder::new()
-        .default_headers(headers)
-        .build()?;
-
-    dbg_bungie(&client, "/Destiny2/Manifest/").await?;
-
-    // dgb_player_grab(&client, "/Destiny2/SearchDestinyPlayerByBungieName/All/").await?;
-
-    Ok(())
+    let native_options = eframe::NativeOptions::default();
+    eframe::run_native(
+        "Guardian Skill Report",
+        native_options,
+        Box::new(|creation_context| Box::new(app::GuardianSkillReportApp::new(creation_context)))
+    )
 }
 
-async fn dbg_bungie(client: &Client, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let manifest = client.get(BUNGIE_ROOT.to_owned() + path)
-        .send()
-        .await?
-        .text()
-        .await?;
+// when compiling to web using trunk.
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    // Make sure panics are logged using `console.error`.
+    console_error_panic_hook::set_once();
 
-    println!("{:?}", manifest);
+    // Redirect tracing to console.log and friends:
+    tracing_wasm::set_as_global_default();
 
-    Ok(())
-}
+    let web_options = eframe::WebOptions::default();
 
-async fn dgb_player_grab(client: &Client, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // look for how to set body
-    let manifest = client.get(BUNGIE_ROOT.to_owned() + path)
-    .send()
-    .await?
-    .text()
-    .await?;
-
-    println!("{:?}", manifest);
-
-    Ok(())
-}
-
-async fn debug(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let resp = reqwest::get(path)
-        .await?
-        .text()
-        .await?;
-    println!("{resp}");
-    Ok(())
-}
-
-use std::fs;
-
-use reqwest::{ClientBuilder, header::{HeaderMap, self}, Client};
-
-struct BungieKey(String);
-fn grab_api_key() -> Result<BungieKey, Box<dyn std::error::Error>> {
-    let api_key_path = "secrets/api.key";
-    let contents = fs::read_to_string(api_key_path)?;
-    Ok(BungieKey(contents))
+    wasm_bindgen_futures::spawn_local(async {
+        eframe::start_web(
+            "the_canvas_id", // hardcode it
+            web_options,
+            Box::new(|cc| Box::new(eframe_template::TemplateApp::new(cc))),
+        )
+        .await
+        .expect("failed to start eframe");
+    });
 }
